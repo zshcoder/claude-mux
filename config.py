@@ -24,17 +24,25 @@ from dotenv import load_dotenv
 from errors import ConfigError
 
 
-def load_env_file(env_file: str | None = None) -> None:
+def load_env_file(env_file: str | None = None) -> bool:
     """
     加载 .env 文件
 
     Args:
         env_file: .env 文件路径。如果为 None，则加载默认的 .env 文件。
+
+    Returns:
+        bool: 是否成功加载了 .env 文件
     """
     if env_file:
         load_dotenv(env_file)
+        return True
     else:
-        load_dotenv()
+        # 检查默认 .env 文件是否存在
+        if os.path.exists(".env"):
+            load_dotenv()
+            return True
+        return False
 
 
 @dataclass

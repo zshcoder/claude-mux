@@ -649,7 +649,12 @@ def main():
     global config
     if config is None:
         # 加载 .env 文件（支持 --env-file 指定路径）
-        load_env_file(args.env_file)
+        env_loaded = load_env_file(args.env_file)
+        if not env_loaded and not args.env_file:
+            print("错误: 未找到 .env 文件", file=sys.stderr)
+            print("提示: 请创建 .env 文件或使用 --env-file 指定配置文件", file=sys.stderr)
+            print("示例: cp .env.example .env", file=sys.stderr)
+            sys.exit(1)
         try:
             config = Config.from_env()
         except ConfigError as e:
