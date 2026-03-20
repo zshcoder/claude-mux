@@ -85,6 +85,58 @@ def insert_after_level(output, request_id_tag):
 
 ---
 
+---
+
+## CI/CD 相关
+
+### GitHub Actions 发布 PyPI 版本号问题
+
+**问题**：发布 v1.0.1、v1.0.2 时，PyPI 报错 `400 Bad Request`，构建产物版本号始终是 1.0.0。
+
+**排查过程**：
+1. v1.0.0 成功发布
+2. v1.0.1 失败 - 发现 `dist/` 目录有旧文件
+3. 添加 `rm -rf dist/` 清理步骤
+4. v1.0.2 仍然失败 - 上传的还是 `claude_mux-1.0.0-py3-none-any.whl`
+5. 检查 `pyproject.toml`，发现版本号硬编码为 `"1.0.0"`
+
+**根因**：
+1. `pyproject.toml` 中 `version = "1.0.0"` 是硬编码
+2. `python -m build` 从 `pyproject.toml` 读取版本号
+3. GitHub Actions 每次 checkout 是干净的代码，不会自动更新版本号
+4. `dist/` 目录的旧文件没有被清理（第一个问题）
+5. 即使清理了 dist/，构建出来的还是 1.0.0（第二个问题）
+
+**解决方案**：在 workflow 中动态替换版本号
+
+```yaml
+- name: Set version from tag
+  run: |
+    TAG=${GITHUB_REF#refs/tags/}
+    VERSION=${TAG#v}
+    sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+    cat pyproject.toml | grep "^version"
+
+- name: Build package
+  run: |
+    rm -rf dist/           # 清理旧构建产物
+    python -m build        # 构建新版本
+```
+
+**关键点**：
+- GitHub Actions 的 `on: push: tags: - 'v*'` 触发时，`GITHUB_REF` 包含完整的 tag 引用
+- `${GITHUB_REF#refs/tags/}` 提取 tag 名称（如 `v1.0.3`）
+- `${TAG#v}` 去除 `v` 前缀得到版本号（如 `1.0.3`）
+- `sed -i` 原地替换 pyproject.toml 中的版本号
+
+**相关文件**：`.github/workflows/release.yml`
+
+**相关 commit**：
+- `6d70e16` fix(ci): Release workflow 先清理 dist 目录再构建
+- `3adf581` fix(ci): 从 tag 自动设置 pyproject.toml 版本号
+
+---
+
 ## 待补充
 
 （后续修 bug 时持续记录）
