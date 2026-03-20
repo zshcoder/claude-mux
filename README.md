@@ -118,9 +118,6 @@ cp .env.example .env
 # 代理认证 Token（必需，用于验证请求）
 AUTH_TOKEN="sk-proxy-your-random-token-here"
 
-# 默认上游 URL（模型不匹配任何规则时使用）
-DEFAULT_UPSTREAM="https://api.anthropic.com"
-
 # 服务器配置
 SERVER_HOST="0.0.0.0"
 SERVER_PORT="12346"
@@ -323,7 +320,7 @@ with httpx.stream(
 | `glm-4` | `SONNET_PATTERN="glm-*"` | 智谱AI |
 | `glm-4-flash` | `SONNET_PATTERN="glm-*"` | 智谱AI |
 | `MiniMax-M2` | `HAIKU_PATTERN="MiniMax-*"` | MiniMax |
-| `unknown-model` | 无匹配规则 → `DEFAULT_UPSTREAM` | Anthropic |
+| `unknown-model` | 无匹配规则 → 抛出 RoutingError | - |
 
 ## 日志
 

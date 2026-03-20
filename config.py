@@ -5,7 +5,6 @@
 
 环境变量说明：
 - AUTH_TOKEN: 代理认证 Token
-- DEFAULT_UPSTREAM: 默认上游 URL（默认 https://api.anthropic.com）
 - SERVER_HOST: 监听地址（默认 0.0.0.0）
 - SERVER_PORT: 监听端口（默认 8000）
 - LOG_LEVEL: 日志级别（默认 INFO）
@@ -72,9 +71,7 @@ class LoggingConfig:
 @dataclass
 class Config:
     """主配置类"""
-    default_upstream: str
     auth_token: Optional[str] = None
-    default_api_key: Optional[str] = None
     routes: List[RouteRule] = field(default_factory=list)
     server: ServerConfig = field(default_factory=ServerConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -95,10 +92,6 @@ class Config:
         auth_token = os.environ.get("AUTH_TOKEN")
         if not auth_token:
             raise ConfigError("缺少环境变量: AUTH_TOKEN（请检查 .env 文件）")
-
-        default_upstream = os.environ.get("DEFAULT_UPSTREAM", "https://api.anthropic.com")
-        if not cls._validate_url(default_upstream):
-            raise ConfigError(f"无效的 DEFAULT_UPSTREAM: {default_upstream}")
 
         # 解析 CORS 来源配置（逗号分隔的域名列表）
         cors_origins_str = os.environ.get("CORS_ORIGINS", "*")
@@ -143,9 +136,7 @@ class Config:
                 ))
 
         return cls(
-            default_upstream=default_upstream,
             auth_token=auth_token,
-            default_api_key=os.environ.get("DEFAULT_AUTH_TOKEN"),
             routes=routes,
             server=server,
             logging=logging_config

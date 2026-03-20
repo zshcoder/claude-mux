@@ -394,24 +394,6 @@ async def readiness_check():
     upstream_status = {}
     all_healthy = True
 
-    # 检查默认上游
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            resp = await http_client.get(config.default_upstream.rstrip('/') + "/health")
-            upstream_status["default"] = {
-                "healthy": resp.status_code < 500,
-                "status_code": resp.status_code
-            }
-            if resp.status_code >= 500:
-                all_healthy = False
-    except Exception as e:
-        upstream_status["default"] = {
-            "healthy": False,
-            "error": str(e)
-        }
-        all_healthy = False
-
     # 检查路由配置的上游
     for route in config.routes:
         try:

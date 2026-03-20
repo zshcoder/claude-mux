@@ -32,8 +32,7 @@ class ModelRouter:
         self.config = config
         logger.info(
             "router_initialized",
-            routes_count=len(config.routes),
-            default_upstream=config.default_upstream
+            routes_count=len(config.routes)
         )
     
     def get_upstream_url(self, model: str) -> str:
