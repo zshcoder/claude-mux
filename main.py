@@ -33,7 +33,12 @@ from router import ModelRouter
 config: Config | None = None
 router: ModelRouter | None = None
 client: UpstreamClient | None = None
-_log_lang: str = "zh"  # 命令行指定的日志语言
+
+
+def _get_log_lang() -> str:
+    """获取日志语言设置，优先从环境变量读取"""
+    import os
+    return os.environ.get("LOG_LANG", "zh")
 logger: structlog.BoundLogger | None = None
 
 
@@ -56,7 +61,7 @@ async def lifespan(app: FastAPI):
         setup_logging(
             level=config.logging.level,
             json_format=(config.logging.format == "json"),
-            lang=_log_lang
+            lang=_get_log_lang()
         )
 
         logger = get_logger(__name__)
@@ -631,6 +636,10 @@ def main():
     log_level = args.log_level if args.log_level is not None else config.logging.level.lower()
     global _log_lang
     _log_lang = args.lang
+
+    # 通过环境变量传递给子进程
+    import os
+    os.environ["LOG_LANG"] = args.lang
 
     # 配置应用（添加中间件等），必须在 uvicorn.run 之前调用
     log_user_agent = args.log_user_agent or (config.logging.log_user_agent if config else False)
