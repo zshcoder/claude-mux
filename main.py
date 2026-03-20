@@ -240,6 +240,12 @@ async def proxy_request(path: str, request: Request) -> Response:
                 headers=forward_headers,
                 json=body
             )
+            logger.info(
+                "forwarding_request",
+                model=model,
+                upstream_url=upstream_url,
+                target_url=target_url
+            )
             upstream_resp = await http_client.send(req, stream=True)
 
         except Exception as e:
