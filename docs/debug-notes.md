@@ -92,40 +92,132 @@ def insert_after_level(output, request_id_tag):
 **文件位置**：`request_id_logging.py`
 
 **功能**：
-- 自动生成请求唯一 ID
-- 绑定到 structlog 上下文
-- request_id 紧跟日志级别显示
+- 自动生成请求唯一 ID（支持客户端传入 x-request-id）
+- 绑定到 structlog 上下文，所有日志自动携带
+- request_id 紧跟日志级别显示，便于追踪并发请求
 - 支持配置颜色和前缀格式
+- 通用模块，可直接复制到其他项目使用
 
-**使用方法**：
+#### 快速开始
 
-```python
-# 1. 复制到项目根目录
+```bash
+# 1. 复制 request_id_logging.py 到项目根目录
 
-# 2. 在 main.py 中
+# 2. 修改 main.py
 from request_id_logging import setup_request_id_logging, RequestIDMiddleware
 
-# 在 structlog 配置之前调用
+# 在应用创建后、uvicorn.run 之前调用
+setup_request_id_logging(level="INFO")
+
+# 添加中间件
+app.add_middleware(RequestIDMiddleware)
+
+# 3. 启动服务
+uvicorn.run(app, host="0.0.0.0", port=8000)  # 注意：直接传 app，不是字符串！
+```
+
+#### 完整集成示例
+
+```python
+# main.py
+import argparse
+from fastapi import FastAPI
+from request_id_logging import setup_request_id_logging, RequestIDMiddleware
+
+app = FastAPI()
+
+# 命令行参数
+parser = argparse.ArgumentParser()
+parser.add_argument("--request-id-prefix", action="store_true", help="显示 request_id= 前缀")
+args = parser.parse_args()
+
+# 初始化日志（必须在其他日志调用之前）
 setup_request_id_logging(
     level="INFO",
-    lang="zh",
-    show_request_id_prefix=False  # 或 True 显示 [request_id=xxx]
+    show_request_id_prefix=args.request_id_prefix
 )
 
 # 添加中间件
 app.add_middleware(RequestIDMiddleware)
 
-# 3. 命令行参数（可选）
-parser.add_argument("--request-id-prefix", action="store_true")
-# 传递给 setup:
-# setup_request_id_logging(show_request_id_prefix=args.request_id_prefix)
+@app.post("/api")
+async def api_handler():
+    # 所有日志都会自动包含 request_id
+    logger.info("处理请求")  # 输出: [info][abc123] 处理请求
+    ...
+
+uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-**配置项**（在文件顶部修改）：
+#### 如果项目已有 structlog 配置
+
 ```python
-REQUEST_ID_PREFIX = False      # 是否显示 "request_id=" 前缀
-REQUEST_ID_COLOR = "\x1b[33m" # 颜色代码 (33=黄色)
+# 不想用 setup_request_id_logging？也可以只导入组件
+
+from request_id_logging import RequestIDMiddleware, RequestIDRenderer, ConsoleRendererWithRequestID
+from your_logger import setup_logging  # 你的现有配置函数
+
+# 在你的 setup_logging 中添加这些 processor
+def setup_logging_with_request_id(...):
+    # 原有 processors...
+    processors = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        RequestIDRenderer(),  # 添加这个
+        # ... 其他 processors
+        ConsoleRendererWithRequestID(colors=True)  # 替换原有的 ConsoleRenderer
+    ]
+    structlog.configure(processors=processors, ...)
+
+# 中间件单独添加
+app.add_middleware(RequestIDMiddleware)
 ```
+
+#### 配置项
+
+| 配置项 | 位置 | 说明 |
+|--------|------|------|
+| `REQUEST_ID_PREFIX` | 文件顶部 | `False`=显示 `[abc123]`，`True`=显示 `[request_id=abc123]` |
+| `REQUEST_ID_COLOR` | 文件顶部 | ANSI 颜色代码，默认 `\x1b[33m`（黄色） |
+
+**颜色代码参考**：
+
+| 代码 | 颜色 |
+|------|------|
+| `\x1b[31m` | 红色 |
+| `\x1b[32m` | 绿色 |
+| `\x1b[33m` | 黄色（默认） |
+| `\x1b[34m` | 蓝色 |
+| `\x1b[35m` | 洋红 |
+| `\x1b[36m` | 青色 |
+
+#### API 参考
+
+**`setup_request_id_logging(level, json_format, lang, utc, show_request_id_prefix)`**
+
+配置 structlog 日志系统（带 request_id 支持）。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `level` | str | `"INFO"` | 日志级别 |
+| `json_format` | bool | `False` | 是否输出 JSON 格式 |
+| `lang` | str | `"zh"` | 日志语言 |
+| `utc` | bool | `False` | 是否使用 UTC 时间 |
+| `show_request_id_prefix` | bool | `False` | 是否显示 `request_id=` 前缀 |
+
+**`RequestIDMiddleware`**
+
+FastAPI/Starlette 中间件，自动生成/绑定 request_id。
+
+**`RequestIDRenderer`**
+
+structlog processor，从上下文提取 request_id 并标记位置。
+
+**`ConsoleRendererWithRequestID`**
+
+structlog renderer，将 request_id 插入到日志级别后面。
 
 ---
 
