@@ -32,8 +32,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install build
 
+      - name: Set version from tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          cat pyproject.toml | grep "^version"
+
       - name: Build package
-        run: python -m build
+        run: |
+          rm -rf dist/
+          python -m build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -41,6 +50,43 @@ jobs:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
 ```
+
+## 版本号机制
+
+**重要**：`pyproject.toml` 中的版本号是**占位符**，实际发布的版本号由 **git tag** 决定。
+
+### 本地 pyproject.toml
+```toml
+version = "1.0.0"  # 占位符，本地开发用
+```
+
+### 发布流程中的版本替换
+
+```bash
+# 1. 打标签（TAG=v1.0.4）
+git tag v1.0.4
+
+# 2. GitHub Actions 中自动替换
+TAG=${GITHUB_REF#refs/tags/}   # v1.0.4
+VERSION=${TAG#v}                # 1.0.4
+sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+# pyproject.toml 变成: version = "1.0.4"
+```
+
+### 为什么需要 sed 替换？
+
+- `pyproject.toml` 硬编码版本号（如 "1.0.0"）
+- `python -m build` 从 `pyproject.toml` 读取版本号
+- GitHub Actions 每次 checkout 是干净的代码
+- 如果不替换，构建出来的还是旧版本
+
+### GITHUB_REF 环境变量
+
+| GITHUB_REF 值 | ${TAG#v} 结果 |
+|---------------|----------------|
+| `refs/tags/v1.0.4` | `1.0.4` |
+| `refs/tags/v2.0.0` | `2.0.0` |
+| `refs/heads/main` | 不触发（不是 tags） |
 
 ## 触发机制
 
@@ -107,7 +153,7 @@ git push origin v1.0.0
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  git push origin v1.0.0                                     │
+│  git push origin v1.0.4                                    │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -117,12 +163,12 @@ git push origin v1.0.0
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 1: Checkout代码                                       │
+│  Step 1: Checkout 代码（干净的环境）                        │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 2: 设置 Python 3.13                                   │
+│  Step 2: 设置 Python 3.13                                  │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -132,17 +178,28 @@ git push origin v1.0.0
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 4: python -m build 构建 wheel 和 tar.gz               │
+│  Step 4: sed 替换版本号（v1.0.4 → pyproject.toml）         │
+│           sed -i "s/^version = \".*\"/version = \"1.0.4\""│
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 5: pypa/gh-action-pypi-publish 发布到 PyPI           │
+│  Step 5: rm -rf dist/ 清理旧构建                          │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  ✅ 发布成功，可在 PyPI 查看                                  │
+│  Step 6: python -m build 构建新版本                        │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 7: pypa/gh-action-pypi-publish 发布到 PyPI           │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ✅ 发布成功，可在 PyPI 查看 v1.0.4                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -184,9 +241,43 @@ git ls-remote --tags # 列出所有远程标签
 
 | 文件 | 说明 |
 |------|------|
-| `pyproject.toml` | Python 项目配置，包含包名、版本、依赖 |
+| `pyproject.toml` | Python 项目配置，包含包名、版本（占位符）、依赖 |
 | `.github/workflows/release.yml` | GitHub Actions 发布工作流 |
 | `dist/` | 构建输出目录（自动生成，被 .gitignore 忽略）|
+| `docs/debug-notes.md` | 包含发布问题的排查记录 |
+
+## 故障排查记录
+
+### v1.0.1 失败：dist/ 未清理
+
+**问题**：上传的是旧版本的 wheel 文件。
+
+**原因**：`python -m build` 使用了 `dist/` 目录中残留的旧文件。
+
+**修复**：
+```yaml
+- name: Build package
+  run: |
+    rm -rf dist/    # 先清理
+    python -m build
+```
+
+### v1.0.2 失败：版本号硬编码
+
+**问题**：PyPI 上传的是 `claude_mux-1.0.0-py3-none-any.whl`。
+
+**原因**：`pyproject.toml` 中 `version = "1.0.0"` 是硬编码，`python -m build` 总是构建 1.0.0 版本。
+
+**修复**：
+```yaml
+- name: Set version from tag
+  run: |
+    TAG=${GITHUB_REF#refs/tags/}
+    VERSION=${TAG#v}
+    sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+```
+
+**相关 commit**：`6d70e16`、`3adf581`
 
 ## 后续优化（可选）
 
