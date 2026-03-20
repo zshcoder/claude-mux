@@ -11,3 +11,9 @@ wheels/
 
 # Environment variables
 .env
+
+# uv lock file
+uv.lock
+
+# IDE
+.idea/
