@@ -162,15 +162,37 @@ which claude-mux          # Linux/macOS
 # 列出已安装的工具
 uv tool list
 
-# 升级工具
+# 升级工具（如果有新版本）
 uv tool upgrade claude-mux
 
 # 卸载工具
 uv tool uninstall claude-mux
 
-# 重新安装
-uv tool uninstall claude-mux && uv tool install claude-mux
+# 强制重新安装（先卸载再安装，即使已安装）
+uv tool install --force claude-mux
 ```
+
+### 7. 更新版本
+
+#### 自动升级
+
+```bash
+# 升级到 PyPI 上的最新版本
+uv tool upgrade claude-mux
+```
+
+#### 手动升级（强制重装）
+
+```bash
+# 如果 upgrade 不起作用，使用 --force
+uv tool install --force claude-mux
+```
+
+**注意**：如果程序正在运行，`--force` 可能在复制可执行文件时失败：
+```
+error: failed to copy file ... 另一个程序正在使用此文件
+```
+**解决方案**：先关闭运行的程序，或先 `uv tool uninstall claude-mux` 再重新安装。
 
 ---
 
