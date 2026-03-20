@@ -56,6 +56,79 @@ uvicorn.run(app, host="0.0.0.0", port=12346)
 
 ---
 
+### structlog ConsoleRenderer 输出包含 ANSI 转义序列
+
+**问题**：正则匹配日志级别 `[info]` 失败，导致 request_id 无法正确插入。
+
+**排查**：ConsoleRenderer 输出类似：
+```
+\x1b[2m2026-03-21T00:12:22.146140\x1b[0m [\x1b[32m\x1b[1minfo     \x1b[0m] ...
+```
+
+**根因**：structlog 的 ConsoleRenderer 默认输出包含 ANSI 颜色转义序列，正则 `\w+` 无法匹配包含颜色代码的文本。
+
+**解决方案**：
+1. 先用 ANSI 转义序列正则去除颜色代码
+2. 在纯净文本上做正则匹配
+3. 根据纯净文本的匹配位置，在原始输出中插入内容
+
+```python
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
+
+def insert_after_level(output, request_id_tag):
+    clean = ANSI_ESCAPE.sub('', output)
+    match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+ \[)(\w+)(\s*\])', clean)
+    if match:
+        # 计算原始输出中的位置并插入
+        ...
+```
+
+---
+
+## 通用模块
+
+### request_id_logging.py - Request ID 日志增强
+
+**文件位置**：`request_id_logging.py`
+
+**功能**：
+- 自动生成请求唯一 ID
+- 绑定到 structlog 上下文
+- request_id 紧跟日志级别显示
+- 支持配置颜色和前缀格式
+
+**使用方法**：
+
+```python
+# 1. 复制到项目根目录
+
+# 2. 在 main.py 中
+from request_id_logging import setup_request_id_logging, RequestIDMiddleware
+
+# 在 structlog 配置之前调用
+setup_request_id_logging(
+    level="INFO",
+    lang="zh",
+    show_request_id_prefix=False  # 或 True 显示 [request_id=xxx]
+)
+
+# 添加中间件
+app.add_middleware(RequestIDMiddleware)
+
+# 3. 命令行参数（可选）
+parser.add_argument("--request-id-prefix", action="store_true")
+# 传递给 setup:
+# setup_request_id_logging(show_request_id_prefix=args.request_id_prefix)
+```
+
+**配置项**（在文件顶部修改）：
+```python
+REQUEST_ID_PREFIX = False      # 是否显示 "request_id=" 前缀
+REQUEST_ID_COLOR = "\x1b[33m" # 颜色代码 (33=黄色)
+```
+
+---
+
 ## 待补充
 
 （后续修 bug 时持续记录）

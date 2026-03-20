@@ -8,6 +8,7 @@ structlog 日志配置模块
 - 请求日志记录
 - 调用位置信息（函数名、行号、线程号）
 - 中英文日志消息切换
+- Request ID 追踪（集成自 request_id_logging.py）
 """
 
 import logging
@@ -17,6 +18,12 @@ from typing import Any, Dict, Optional
 
 import structlog
 from structlog.processors import CallsiteParameter, CallsiteParameterAdder
+
+# 从 request_id_logging 导入 Request ID 相关组件
+from request_id_logging import (
+    RequestIDRenderer as _RequestIDRenderer,
+    ConsoleRendererWithRequestID,
+)
 
 
 # 日志消息中英文映射表
@@ -75,99 +82,6 @@ class MessageTranslateProcessor:
         return event_dict
 
 
-class RequestIDRenderer:
-    """
-    请求ID渲染处理器
-
-    将 request_id 从 context 中提取并渲染到日志级别旁边，
-    使其紧跟在 [level] 之后，形成 [level][request_id=xxx] 的视觉效果。
-    """
-
-    # 类变量，控制是否显示 "request_id=" 前缀
-    show_prefix: bool = True
-
-    def __call__(self, logger, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
-        request_id = event_dict.pop("request_id", None)
-        if request_id:
-            # 用特殊格式标记，便于 ConsoleRenderer 识别并放置到级别旁边
-            if self.show_prefix:
-                event_dict["_request_id"] = f"[request_id={request_id}]"
-            else:
-                event_dict["_request_id"] = f"[{request_id}]"
-        return event_dict
-
-
-class _ConsoleRendererWithRequestID:
-    """
-    自定义 Console Renderer
-
-    将 _request_id 字段的内容（形如 [request_id=xxx]）直接拼接到日志级别后面，
-    实现 [info][request_id=xxx] 的效果。
-    """
-
-    # ANSI 转义序列的正则
-    ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
-
-    def __init__(self, colors: bool = True, **kwargs):
-        self.colors = colors
-        self._default_renderer = structlog.dev.ConsoleRenderer(colors=colors, **kwargs)
-
-    # request_id 的颜色代码 (黄色高亮)
-    REQUEST_ID_COLOR = "\x1b[33m"  # 黄色
-    REQUEST_ID_RESET = "\x1b[0m"
-
-    def __call__(self, logger, method_name: str, event_dict: Dict[str, Any]):
-        # 提取 _request_id 字段
-        request_id_tag = event_dict.pop("_request_id", None)
-
-        # 如果有 request_id，添加颜色（只给内容染色，括号保持默认颜色）
-        if request_id_tag and self.colors:
-            # request_id_tag 形如 "[abc123]" 或 "[request_id=abc123]"
-            # 只给括号内的内容染色
-            if request_id_tag.startswith("[request_id="):
-                # 格式: [request_id=abc123]
-                content = request_id_tag[12:-1]  # 提取 "abc123"
-                request_id_tag = f"[request_id={self.REQUEST_ID_COLOR}{content}{self.REQUEST_ID_RESET}]"
-            elif request_id_tag.startswith("["):
-                # 格式: [abc123]
-                content = request_id_tag[1:-1]  # 提取 "abc123"
-                request_id_tag = f"[{self.REQUEST_ID_COLOR}{content}{self.REQUEST_ID_RESET}]"
-
-        # 调用默认渲染器获取基础输出
-        output = self._default_renderer(logger, method_name, event_dict)
-
-        # 如果有 request_id，插入到级别后面
-        if request_id_tag and isinstance(output, str):
-            # 去除 ANSI 转义序列后进行匹配
-            clean_output = self.ANSI_ESCAPE.sub('', output)
-            # 匹配时间戳和日志级别: 2026-03-20T23:45:59.455847 [info     ]
-            match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+ \[)(\w+)(\s*\])', clean_output)
-            if match:
-                # 找到 ] 在 clean_output 中的位置（即 [info     ] 的结束位置）
-                bracket_pos = match.end()
-                # 在原始输出中找到对应的位置
-                # 从 clean_output 的开头逐字符扫描，统计原始输出中的字符偏移
-                raw_pos = 0
-                clean_pos = 0
-                while clean_pos < bracket_pos and raw_pos < len(output):
-                    if output[raw_pos] == '\x1b':
-                        # ANSI 转义序列开始，跳过整个序列
-                        match_escape = re.match(r'\x1b\[[0-9;]*m', output[raw_pos:])
-                        if match_escape:
-                            raw_pos += len(match_escape.group())
-                        else:
-                            raw_pos += 1
-                    else:
-                        raw_pos += 1
-                        clean_pos += 1
-                # 现在 raw_pos 指向原始输出中 ] 的位置
-                prefix = output[:raw_pos]
-                remainder = output[raw_pos:]
-                output = prefix + request_id_tag + remainder
-
-        return output
-
-
 def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "zh", utc: bool = False, request_id_prefix: bool = False):
     """
     配置 structlog 日志系统
@@ -208,7 +122,7 @@ def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "z
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=utc),
-        RequestIDRenderer(),  # 将 request_id 渲染到日志级别旁边（必须在 TimeStamper 之后）
+        _RequestIDRenderer(),  # 将 request_id 渲染到日志级别旁边（必须在 TimeStamper 之后）
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
@@ -217,7 +131,7 @@ def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "z
     ]
 
     # 设置 request_id 前缀显示
-    RequestIDRenderer.show_prefix = request_id_prefix
+    _RequestIDRenderer.show_prefix = request_id_prefix
 
     # 绑定语言设置到上下文
     structlog.contextvars.bind_contextvars(lang=lang)
@@ -231,9 +145,9 @@ def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "z
         # Console 格式（开发环境）
         # 使用自定义 renderer 实现 request_id 紧跟日志级别
         processors = shared_processors + [
-            _ConsoleRendererWithRequestID(colors=True)
+            ConsoleRendererWithRequestID(colors=True)
         ]
-    
+
     # 配置 structlog
     structlog.configure(
         processors=processors,
@@ -242,7 +156,8 @@ def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "z
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    
+
+
 def get_logger(name: str) -> structlog.BoundLogger:
     """
     获取 logger 实例
@@ -315,13 +230,13 @@ def log_error(
 ) -> None:
     """
     记录错误信息
-    
+
     Args:
         logger: structlog logger 实例
         error: 异常对象
         context: 上下文信息（可选）
         **kwargs: 额外的上下文信息
-    
+
     Example:
         >>> try:
         ...     # some operation
@@ -342,12 +257,12 @@ def log_error(
 def bind_context(**kwargs: Any) -> None:
     """
     绑定上下文变量到日志
-    
+
     绑定后，所有后续的日志记录都会自动包含这些变量。
-    
+
     Args:
         **kwargs: 要绑定的上下文变量
-    
+
     Example:
         >>> bind_context(request_id="abc-123", user_id="user-456")
         >>> logger.info("processing_request")  # 会自动包含 request_id 和 user_id
@@ -358,10 +273,10 @@ def bind_context(**kwargs: Any) -> None:
 def unbind_context(*keys: str) -> None:
     """
     解绑上下文变量
-    
+
     Args:
         *keys: 要解绑的变量名
-    
+
     Example:
         >>> unbind_context("request_id", "user_id")
     """
@@ -371,7 +286,7 @@ def unbind_context(*keys: str) -> None:
 def clear_context() -> None:
     """
     清除所有上下文变量
-    
+
     Example:
         >>> clear_context()
     """
