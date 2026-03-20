@@ -39,6 +39,12 @@ def _get_log_lang() -> str:
     """获取日志语言设置，优先从环境变量读取"""
     import os
     return os.environ.get("LOG_LANG", "zh")
+
+
+def _get_log_utc() -> bool:
+    """获取日志时区设置，优先从环境变量读取"""
+    import os
+    return os.environ.get("LOG_UTC", "false").lower() == "true"
 logger: structlog.BoundLogger | None = None
 
 
@@ -61,7 +67,8 @@ async def lifespan(app: FastAPI):
         setup_logging(
             level=config.logging.level,
             json_format=(config.logging.format == "json"),
-            lang=_get_log_lang()
+            lang=_get_log_lang(),
+            utc=_get_log_utc()
         )
 
         logger = get_logger(__name__)
@@ -607,6 +614,8 @@ def main():
     parser.add_argument("--log-user-agent", action="store_true", help="在日志中显示 User-Agent")
     parser.add_argument("--lang", type=str, choices=["zh", "en"], default="zh",
                         help="日志语言 (zh 中文 / en 英文，默认中文)")
+    parser.add_argument("--utc", action="store_true",
+                        help="使用 UTC 时区而非本地时区")
 
     args = parser.parse_args()
 
@@ -640,6 +649,7 @@ def main():
     # 通过环境变量传递给子进程
     import os
     os.environ["LOG_LANG"] = args.lang
+    os.environ["LOG_UTC"] = "true" if args.utc else "false"
 
     # 配置应用（添加中间件等），必须在 uvicorn.run 之前调用
     log_user_agent = args.log_user_agent or (config.logging.log_user_agent if config else False)

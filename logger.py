@@ -74,7 +74,7 @@ class MessageTranslateProcessor:
         return event_dict
 
 
-def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "zh"):
+def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "zh", utc: bool = False):
     """
     配置 structlog 日志系统
 
@@ -112,7 +112,7 @@ def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "z
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.TimeStamper(fmt="iso", utc=utc),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
