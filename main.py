@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from auth import create_auth_dependency
 from client import UpstreamClient
 from config import Config
+from middleware.request_id import RequestIDMiddleware
 from errors import (
     ConfigError,
     ProxyError,
@@ -45,6 +46,14 @@ def _get_log_utc() -> bool:
     """获取日志时区设置，优先从环境变量读取"""
     import os
     return os.environ.get("LOG_UTC", "false").lower() == "true"
+
+
+def _get_request_id_prefix() -> bool:
+    """获取 request_id 前缀显示设置，优先从环境变量读取"""
+    import os
+    return os.environ.get("REQUEST_ID_PREFIX", "false").lower() == "true"
+
+
 logger: structlog.BoundLogger | None = None
 
 
@@ -68,7 +77,8 @@ async def lifespan(app: FastAPI):
             level=config.logging.level,
             json_format=(config.logging.format == "json"),
             lang=_get_log_lang(),
-            utc=_get_log_utc()
+            utc=_get_log_utc(),
+            request_id_prefix=_get_request_id_prefix()
         )
 
         logger = get_logger(__name__)
@@ -153,6 +163,9 @@ def configure_app(log_user_agent: bool = False) -> None:
         allow_headers=["*"],
     )
 
+    # 添加请求ID中间件（自动生成/透传请求ID并绑定到日志上下文）
+    app.add_middleware(RequestIDMiddleware)
+
     # 保存日志配置
     app.state.log_user_agent = log_user_agent or config.logging.log_user_agent
 
@@ -182,7 +195,6 @@ async def proxy_request(path: str, request: Request) -> Response:
     if client_ip in ("127.0.0.1", "::1", "localhost"):
         client_ip = None
     user_agent = request.headers.get("user-agent", "unknown")
-    request_id = request.headers.get("x-request-id")
 
     # 读取请求体（需要先读取才能获取 size）
     try:
@@ -193,14 +205,12 @@ async def proxy_request(path: str, request: Request) -> Response:
         logger.warning("invalid_json_body", error=str(e))
         raise RequestValidationError("请求体不是有效的 JSON")
 
-    # 只绑定有值的字段
+    # 只绑定有值的字段（request_id 已由中间件绑定）
     bind_context(request_size=request_size)
     if getattr(app.state, 'log_user_agent', False) and user_agent:
         bind_context(user_agent=user_agent)
     if client_ip:
         bind_context(client_ip=client_ip)
-    if request_id:
-        bind_context(request_id=request_id)
 
     try:
         # 认证：通过依赖注入验证（HTTPException 401 会自动抛出）
@@ -616,6 +626,8 @@ def main():
                         help="日志语言 (zh 中文 / en 英文，默认中文)")
     parser.add_argument("--utc", action="store_true",
                         help="使用 UTC 时区而非本地时区")
+    parser.add_argument("--request-id-prefix", action="store_true",
+                        help="在 request_id 标签中显示 request_id= 前缀")
 
     args = parser.parse_args()
 
@@ -650,13 +662,14 @@ def main():
     import os
     os.environ["LOG_LANG"] = args.lang
     os.environ["LOG_UTC"] = "true" if args.utc else "false"
+    os.environ["REQUEST_ID_PREFIX"] = "true" if args.request_id_prefix else "false"
 
     # 配置应用（添加中间件等），必须在 uvicorn.run 之前调用
     log_user_agent = args.log_user_agent or (config.logging.log_user_agent if config else False)
     configure_app(log_user_agent=log_user_agent)
 
     uvicorn.run(
-        "main:app",
+        app,
         host=host,
         port=port,
         reload=args.reload,

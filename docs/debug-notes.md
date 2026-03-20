@@ -31,6 +31,31 @@
 
 ---
 
+## Python 相关
+
+### uvicorn 使用字符串导入导致中间件不生效
+
+**问题**：添加了 RequestIDMiddleware 但请求中没有 request_id，日志也不显示。
+
+**排查过程**：
+1. 独立测试 `bind_context` + 日志输出正常
+2. RequestIDRenderer 和 _ConsoleRendererWithRequestID 单独测试正常
+3. 但服务器运行时就是不显示 request_id
+
+**根因**：`uvicorn.run("main:app", ...)` 使用字符串导入会创建新的 app 实例，而 `configure_app()` 是对旧实例操作的。
+
+```python
+# 错误写法 - 会创建新实例
+uvicorn.run("main:app", host="0.0.0.0", port=12346)
+
+# 正确写法 - 直接传递实例
+uvicorn.run(app, host="0.0.0.0", port=12346)
+```
+
+**相关文件**：main.py
+
+---
+
 ## 待补充
 
 （后续修 bug 时持续记录）
