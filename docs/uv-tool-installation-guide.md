@@ -198,6 +198,13 @@ uvx claude-mux --env-file /path/to/.env
 claude-mux --env-file /path/to/.env
 ```
 
+**注意**：如果启动时未找到 .env 文件，会提示：
+```
+错误: 未找到 .env 文件
+提示: 请创建 .env 文件或使用 --env-file 指定配置文件
+示例: cp .env.example .env
+```
+
 #### 方案三：设置环境变量
 
 ```bash
