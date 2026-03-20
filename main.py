@@ -33,6 +33,7 @@ from router import ModelRouter
 config: Config | None = None
 router: ModelRouter | None = None
 client: UpstreamClient | None = None
+_log_lang: str = "zh"  # 命令行指定的日志语言
 logger: structlog.BoundLogger | None = None
 
 
@@ -54,7 +55,8 @@ async def lifespan(app: FastAPI):
         # 初始化日志
         setup_logging(
             level=config.logging.level,
-            json_format=(config.logging.format == "json")
+            json_format=(config.logging.format == "json"),
+            lang=_log_lang
         )
 
         logger = get_logger(__name__)
@@ -598,6 +600,8 @@ def main():
     parser.add_argument("--log-level", type=str, choices=["debug", "info", "warning", "error", "critical"],
                         default=None)
     parser.add_argument("--log-user-agent", action="store_true", help="在日志中显示 User-Agent")
+    parser.add_argument("--lang", type=str, choices=["zh", "en"], default="zh",
+                        help="日志语言 (zh 中文 / en 英文，默认中文)")
 
     args = parser.parse_args()
 
@@ -625,6 +629,8 @@ def main():
     host = args.host if args.host is not None else config.server.host
     port = args.port if args.port is not None else config.server.port
     log_level = args.log_level if args.log_level is not None else config.logging.level.lower()
+    global _log_lang
+    _log_lang = args.lang
 
     # 配置应用（添加中间件等），必须在 uvicorn.run 之前调用
     log_user_agent = args.log_user_agent or (config.logging.log_user_agent if config else False)
