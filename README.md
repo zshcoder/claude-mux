@@ -389,16 +389,7 @@ claude-mux/
 
 每个请求自动生成唯一 `request_id`，绑定到日志上下文，方便追踪并发请求。
 
-**日志效果**：
-```
-2026-03-21T00:28:23.221204 [info     ][abc123] 收到请求  [main] model=MiniMax-M2.7 path=v1/messages ...
-```
-
-**命令行参数**：
-- `--request-id-prefix`：显示 `request_id=` 前缀（默认关闭）
-
-**响应头**：
-- `X-Request-ID`：返回给客户端，便于排查问题
+**详细文档**：[docs/request-id-guide.md](docs/request-id-guide.md)
 
 ## 部署
 
