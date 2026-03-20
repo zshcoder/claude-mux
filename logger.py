@@ -7,6 +7,7 @@ structlog 日志配置模块
 - 上下文绑定
 - 请求日志记录
 - 调用位置信息（函数名、行号、线程号）
+- 中英文日志消息切换
 """
 
 import logging
@@ -17,13 +18,70 @@ import structlog
 from structlog.processors import CallsiteParameter, CallsiteParameterAdder
 
 
-def setup_logging(level: str = "INFO", json_format: bool = False):
+# 日志消息中英文映射表
+# 格式: "event_name": (中文, 英文)
+_LOG_MESSAGES = {
+    # main.py
+    "application_starting": ("服务启动中", "Application starting"),
+    "application_started": ("服务已启动", "Application started"),
+    "application_shutdown": ("服务关闭中", "Application shutdown"),
+    "invalid_json_body": ("无效的 JSON 请求体", "Invalid JSON body"),
+    "missing_model_field": ("缺少 model 字段", "Missing model field"),
+    "request_received": ("收到请求", "Request received"),
+    "routing_request": ("正在路由请求", "Routing request"),
+    "forwarding_request": ("正在转发请求到上游", "Forwarding request to upstream"),
+    "upstream_connection_error": ("上游连接错误", "Upstream connection error"),
+
+    # client.py
+    "upstream_client_initialized": ("上游客户端已初始化", "Upstream client initialized"),
+    "upstream_response_received": ("收到上游响应", "Upstream response received"),
+    "upstream_error_response": ("上游返回错误响应", "Upstream error response"),
+    "streaming_response": ("正在流式传输响应", "Streaming response"),
+    "upstream_timeout": ("上游请求超时", "Upstream timeout"),
+    "upstream_connection_failed": ("上游连接失败", "Upstream connection failed"),
+    "upstream_http_error": ("上游 HTTP 错误", "Upstream HTTP error"),
+    "upstream_client_closed": ("上游客户端已关闭", "Upstream client closed"),
+
+    # auth.py
+    "auth_failed": ("认证失败", "Authentication failed"),
+
+    # router.py
+    "router_initialized": ("路由器已初始化", "Router initialized"),
+    "route_matched": ("路由匹配成功", "Route matched"),
+    "api_key_found": ("找到 API 密钥", "API key found"),
+    "api_key_not_found": ("未找到 API 密钥", "API key not found"),
+    "route_added": ("路由已添加", "Route added"),
+
+    # logger.py 函数
+    "request_processed": ("请求已处理", "Request processed"),
+    "error_occurred": ("发生错误", "Error occurred"),
+}
+
+
+class MessageTranslateProcessor:
+    """
+    日志消息翻译处理器
+
+    根据 lang 上下文变量，在渲染时将英文事件名翻译为中文或英文。
+    """
+
+    def __call__(self, logger, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
+        event = event_dict.get("event")
+        if event and event in _LOG_MESSAGES:
+            lang = event_dict.get("lang", "zh")
+            zh_msg, en_msg = _LOG_MESSAGES[event]
+            event_dict["event"] = zh_msg if lang == "zh" else en_msg
+        return event_dict
+
+
+def setup_logging(level: str = "INFO", json_format: bool = False, lang: str = "zh"):
     """
     配置 structlog 日志系统
 
     Args:
         level: 日志级别 (DEBUG, INFO, WARNING, ERROR)
         json_format: 是否使用 JSON 格式输出（生产环境推荐）
+        lang: 日志语言 ("zh" 中文, "en" 英文)，默认中文
 
     Returns:
         配置好的 structlog logger 实例
@@ -59,8 +117,12 @@ def setup_logging(level: str = "INFO", json_format: bool = False):
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
         CallsiteParameterAdder(parameters=callsite_params),  # 添加函数名、行号、线程名
+        MessageTranslateProcessor(),  # 翻译日志消息
     ]
-    
+
+    # 绑定语言设置到上下文
+    structlog.contextvars.bind_contextvars(lang=lang)
+
     if json_format:
         # JSON 格式（生产环境）
         processors = shared_processors + [
