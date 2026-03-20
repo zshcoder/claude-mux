@@ -12,6 +12,78 @@
 - **高性能异步**：基于 FastAPI 和 httpx 的异步架构，支持连接池管理
 - **CLI 工具**：内置 Token 生成和 Claude Code 配置工具
 
+## 一键安装
+
+### 推荐：uvx（最简单，无需预先安装）
+
+```bash
+# 一行命令即可运行（自动创建临时环境）
+curl -LsSf https://astral.sh/uv/uvx-install.sh | sh && uvx claude-mux
+```
+
+或分步执行：
+
+```bash
+# 1. 安装 uv（如果还没有）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. 直接运行 claude-mux（无需安装！）
+uvx claude-mux
+```
+
+### uvx 工作原理
+
+执行流程：
+1. **uv 检测本地是否有 Python**（通过 `uv python find`）
+2. **如果没有，自动下载 Python**（安装到 `~/.local/share/uv/python/`）
+3. **创建临时虚拟环境**（在 `~/.cache/uv*/...`，不影响系统）
+4. **下载 claude-mux 包**（从 PyPI）
+5. **在临时环境中运行**
+
+| 组件 | 来源 | 存放位置 |
+|------|------|----------|
+| uv | 一键安装脚本 | `~/.local/bin/uv` |
+| Python | uv 自动下载 | `~/.local/share/uv/python/` |
+| 临时环境 | uv 自动创建 | `~/.cache/uv*/...` |
+| claude-mux | 从 PyPI 下载 | 临时环境中 |
+
+**结论**：`uvx` 只需要安装 `uv` 这一个小工具，就能自动搞定 Python + claude-mux。
+
+**国内网络提示**：uv 下载 Python 需要访问 GitHub（~50-100MB），国内可能较慢。如遇下载问题，建议使用 Docker 方案。
+
+### Linux / macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/claude-mux/main/scripts/install.sh | bash
+```
+
+### Windows
+
+在 PowerShell 中运行：
+
+```powershell
+irm https://raw.githubusercontent.com/YOUR_USERNAME/claude-mux/main/scripts/install.bat | iex
+```
+
+或下载 `scripts/install.bat` 后双击运行。
+
+### Docker（推荐）
+
+```bash
+# 克隆并启动
+git clone https://github.com/YOUR_USERNAME/claude-mux.git
+cd claude-mux
+docker-compose up -d
+```
+
+### PyPI 安装
+
+```bash
+pip install claude-mux
+```
+
+---
+
 ## 快速开始
 
 ### 1. 安装依赖
