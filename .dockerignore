@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.venv
+venv/
+.git
+.gitignore
+.vscode
+*.md
+!README.md
+docs/
+scripts/
+.kiro/
+*.log

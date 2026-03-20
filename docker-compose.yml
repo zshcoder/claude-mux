@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  claude-proxy:
+    build: .
+    image: claude-mux:latest
+    container_name: claude-proxy
+    ports:
+      - "12346:12346"
+    environment:
+      - AUTH_TOKEN=${AUTH_TOKEN:-sk-proxy-change-me}
+      - DEFAULT_UPSTREAM=${DEFAULT_UPSTREAM:-https://api.anthropic.com}
+      - SERVER_PORT=12346
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-console}
+      - OPUS_PATTERN=${OPUS_PATTERN:-claude-opus-*}
+      - OPUS_UPSTREAM=${OPUS_UPSTREAM:-https://api.anthropic.com}
+      - OPUS_AUTH_TOKEN=${OPUS_AUTH_TOKEN:-}
+      - SONNET_PATTERN=${SONNET_PATTERN:-glm-*}
+      - SONNET_UPSTREAM=${SONNET_UPSTREAM:-https://open.bigmodel.cn/api/anthropic}
+      - SONNET_AUTH_TOKEN=${SONNET_AUTH_TOKEN:-}
+      - HAIKU_PATTERN=${HAIKU_PATTERN:-MiniMax-*}
+      - HAIKU_UPSTREAM=${HAIKU_UPSTREAM:-https://api.minimaxi.com/anthropic}
+      - HAIKU_AUTH_TOKEN=${HAIKU_AUTH_TOKEN:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12346/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
