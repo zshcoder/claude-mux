@@ -23,8 +23,18 @@ from dotenv import load_dotenv
 
 from errors import ConfigError
 
-# 加载 .env
-load_dotenv()
+
+def load_env_file(env_file: str | None = None) -> None:
+    """
+    加载 .env 文件
+
+    Args:
+        env_file: .env 文件路径。如果为 None，则加载默认的 .env 文件。
+    """
+    if env_file:
+        load_dotenv(env_file)
+    else:
+        load_dotenv()
 
 
 @dataclass

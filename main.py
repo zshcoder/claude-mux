@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from auth import create_auth_dependency
 from client import UpstreamClient
-from config import Config
+from config import Config, load_env_file
 from middleware.request_id import RequestIDMiddleware
 from errors import (
     ConfigError,
@@ -628,6 +628,8 @@ def main():
                         help="使用 UTC 时区而非本地时区")
     parser.add_argument("--request-id-prefix", action="store_true",
                         help="在 request_id 标签中显示 request_id= 前缀")
+    parser.add_argument("--env-file", type=str, default=None,
+                        help=".env 文件路径（默认当前目录的 .env）")
 
     args = parser.parse_args()
 
@@ -646,6 +648,8 @@ def main():
     # 如果配置还未加载，先加载配置
     global config
     if config is None:
+        # 加载 .env 文件（支持 --env-file 指定路径）
+        load_env_file(args.env_file)
         try:
             config = Config.from_env()
         except ConfigError as e:
