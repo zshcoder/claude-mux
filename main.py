@@ -5,6 +5,7 @@ Claude 代理路由器 - 主应用
 支持 SSE 流式响应和 API 密钥管理。
 """
 
+import json
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -73,7 +74,11 @@ async def lifespan(app: FastAPI):
         # 创建认证依赖
         app.state.verify_token = create_auth_dependency(config.auth_token)
 
-        logger.info("application_started", routes_count=len(config.routes))
+        logger.info(
+            "application_started",
+            routes_count=len(config.routes),
+            cors_origins=config.server.cors_origins
+        )
 
         yield
 
@@ -100,14 +105,45 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 添加 CORS 中间件（可选）
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def configure_app(log_user_agent: bool = False) -> None:
+    """
+    配置应用（必须在应用创建后、启动前调用）
+
+    由于中间件必须在应用启动前添加，因此将此逻辑从 lifespan 移出。
+    首次调用时会初始化配置和中间件，后续调用直接返回。
+
+    Args:
+        log_user_agent: 是否在日志中显示 User-Agent
+    """
+    global config
+
+    # 如果已经配置过，直接返回
+    if config is not None and hasattr(app.state, '_cors_configured'):
+        return
+
+    # 确保配置已加载
+    if config is None:
+        try:
+            config = Config.from_env()
+        except ConfigError as e:
+            print(f"配置错误: {e.message}", file=sys.stderr)
+            sys.exit(1)
+
+    # 添加 CORS 中间件（使用配置的 origins）
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.server.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # 保存日志配置
+    app.state.log_user_agent = log_user_agent or config.logging.log_user_agent
+
+    # 标记已配置
+    app.state._cors_configured = True
 
 
 @app.post("/{path:path}")
@@ -120,19 +156,44 @@ async def proxy_request(path: str, request: Request) -> Response:
     # 绑定请求上下文
     bind_context(request_path=path)
 
+    # 提取客户端信息
+    client_host = request.client.host if request.client else None
+    # 优先获取代理转发的原始 IP，其次获取直接连接的 IP
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+    else:
+        client_ip = client_host
+    # 过滤本地回环地址
+    if client_ip in ("127.0.0.1", "::1", "localhost"):
+        client_ip = None
+    user_agent = request.headers.get("user-agent", "unknown")
+    request_id = request.headers.get("x-request-id")
+
+    # 读取请求体（需要先读取才能获取 size）
+    try:
+        body = await request.body()
+        request_size = len(body)
+        body = json.loads(body) if body else {}
+    except Exception as e:
+        logger.warning("invalid_json_body", error=str(e))
+        raise RequestValidationError("请求体不是有效的 JSON")
+
+    # 只绑定有值的字段
+    bind_context(request_size=request_size)
+    if getattr(app.state, 'log_user_agent', False) and user_agent:
+        bind_context(user_agent=user_agent)
+    if client_ip:
+        bind_context(client_ip=client_ip)
+    if request_id:
+        bind_context(request_id=request_id)
+
     try:
         # 认证：通过依赖注入验证（HTTPException 401 会自动抛出）
         await request.app.state.verify_token(
             x_api_key=request.headers.get("x-api-key"),
             authorization=request.headers.get("authorization"),
         )
-
-        # 读取请求体
-        try:
-            body = await request.json()
-        except Exception as e:
-            logger.warning("invalid_json_body", error=str(e))
-            raise RequestValidationError("请求体不是有效的 JSON")
 
         # 提取模型名称
         model = body.get("model")
@@ -192,7 +253,13 @@ async def proxy_request(path: str, request: Request) -> Response:
             log_request(logger, model=model, upstream_url=upstream_url, status_code=502, duration=duration)
             clear_context()
             return Response(
-                content=f'{{"error":{{"type":"proxy_error","message":"无法连接上游: {str(e)}"}}}}',
+                content=json.dumps({
+                    "error": {
+                        "type": "upstream_error",
+                        "message": f"无法连接上游: {str(e)}",
+                        "upstream_url": upstream_url
+                    }
+                }, ensure_ascii=False),
                 status_code=502,
                 media_type="application/json"
             )
@@ -235,11 +302,11 @@ async def proxy_request(path: str, request: Request) -> Response:
         duration = time.time() - start_time
         log_error(logger, e, model=body.get("model") if 'body' in locals() else None)
 
-        # 返回错误响应
+        # 返回统一的 JSON 错误响应
         return Response(
-            content=e.message,
+            content=e.to_json(),
             status_code=e.status_code,
-            media_type="text/plain"
+            media_type="application/json"
         )
 
     except Exception as e:
@@ -247,27 +314,110 @@ async def proxy_request(path: str, request: Request) -> Response:
         duration = time.time() - start_time
         log_error(logger, e, path=path)
 
-        # 返回 500 错误
+        # 返回统一的 JSON 500 错误
         return Response(
-            content=f"内部服务器错误: {str(e)}",
+            content=json.dumps({
+                "error": {
+                    "type": "internal_error",
+                    "message": f"内部服务器错误: {str(e)}"
+                }
+            }, ensure_ascii=False),
             status_code=500,
-            media_type="text/plain"
+            media_type="application/json"
         )
 
 
-@app.get("/health")
-async def health_check():
+@app.get("/health/live")
+async def liveness_check():
     """
-    健康检查端点
-    
+    存活探针（Liveness Probe）
+
+    用于 Kubernetes 判断容器是否存活。
+    只要服务进程在运行就返回 healthy。
+
     Returns:
         健康状态
     """
     return {
         "status": "healthy",
-        "routes_count": len(config.routes) if config else 0,
-        "default_upstream": config.default_upstream if config else None
+        "service": "claude-proxy-router"
     }
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    """
+    就绪探针（Readiness Probe）
+
+    用于 Kubernetes 判断容器是否可以接收流量。
+    检查上游服务连通性。
+
+    Returns:
+        健康状态及上游检查结果
+    """
+    if not config:
+        return {
+            "status": "not_ready",
+            "reason": "configuration not loaded"
+        }
+
+    upstream_status = {}
+    all_healthy = True
+
+    # 检查默认上游
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            resp = await http_client.get(config.default_upstream.rstrip('/') + "/health")
+            upstream_status["default"] = {
+                "healthy": resp.status_code < 500,
+                "status_code": resp.status_code
+            }
+            if resp.status_code >= 500:
+                all_healthy = False
+    except Exception as e:
+        upstream_status["default"] = {
+            "healthy": False,
+            "error": str(e)
+        }
+        all_healthy = False
+
+    # 检查路由配置的上游
+    for route in config.routes:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as http_client:
+                resp = await http_client.get(route.upstream_url.rstrip('/') + "/health")
+                upstream_status[route.pattern] = {
+                    "healthy": resp.status_code < 500,
+                    "status_code": resp.status_code
+                }
+                if resp.status_code >= 500:
+                    all_healthy = False
+        except Exception as e:
+            upstream_status[route.pattern] = {
+                "healthy": False,
+                "error": str(e)
+            }
+            all_healthy = False
+
+    return {
+        "status": "healthy" if all_healthy else "not_ready",
+        "service": "claude-proxy-router",
+        "routes_count": len(config.routes),
+        "upstreams": upstream_status
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """
+    兼容旧版本的健康检查端点
+
+    Returns:
+        健康状态
+    """
+    return await liveness_check()
 
 
 @app.get("/")
@@ -299,9 +449,9 @@ async def proxy_error_handler(request: Request, exc: ProxyError):
     )
 
     return Response(
-        content=exc.message,
+        content=exc.to_json(),
         status_code=exc.status_code,
-        media_type="text/plain"
+        media_type="application/json"
     )
 
 
@@ -315,9 +465,14 @@ async def general_error_handler(request: Request, exc: Exception):
     )
 
     return Response(
-        content=f"内部服务器错误: {str(exc)}",
+        content=json.dumps({
+            "error": {
+                "type": "internal_error",
+                "message": f"内部服务器错误: {str(exc)}"
+            }
+        }, ensure_ascii=False),
         status_code=500,
-        media_type="text/plain"
+        media_type="application/json"
     )
 
 
@@ -358,10 +513,16 @@ def setup_claude_settings():
     haiku_prefix = get_model_prefix("HAIKU") if "HAIKU" in names else ""
 
     print("\n--- Claude Code 配置 ---")
-    print("直接回车使用 [默认值]\n")
+    print("直接回车使用 [默认值]，输入 . 或 - 跳过（不修改）\n")
 
-    def prompt_value(label: str, default: str) -> str:
+    # 跳过标记
+    SKIP_MARKER = object()
+
+    def prompt_value(label: str, default: str) -> str | object:
+        """提示用户输入值"""
         user_input = input(f"  {label} [{default}]: ").strip()
+        if user_input in (".", "-"):
+            return SKIP_MARKER  # 跳过
         return user_input if user_input else default
 
     base_url = prompt_value("ANTHROPIC_BASE_URL", f"http://localhost:{port}")
@@ -371,21 +532,36 @@ def setup_claude_settings():
     haiku_model = prompt_value("ANTHROPIC_DEFAULT_HAIKU_MODEL", haiku_prefix)
     api_timeout = prompt_value("API_TIMEOUT_MS", "300000")
 
-    # 写入 env 部分
+    # 初始化 env 部分
     if "env" not in settings:
         settings["env"] = {}
 
-    settings["env"]["ANTHROPIC_BASE_URL"] = base_url
-    settings["env"]["ANTHROPIC_AUTH_TOKEN"] = token
-    settings["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet_model
-    settings["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"] = opus_model
-    settings["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = haiku_model
-    settings["env"]["API_TIMEOUT_MS"] = api_timeout
+    # 只更新非跳过的字段
+    updates = [
+        ("ANTHROPIC_BASE_URL", base_url),
+        ("ANTHROPIC_AUTH_TOKEN", token),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", sonnet_model),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", opus_model),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", haiku_model),
+        ("API_TIMEOUT_MS", api_timeout),
+    ]
+
+    skipped = []
+    for key, value in updates:
+        if value is not SKIP_MARKER:
+            settings["env"][key] = value
+        else:
+            skipped.append(key)
+            if key in settings["env"]:
+                 print(f"  跳过 {key}（保留原值: {settings['env'][key]})")
+
+    if skipped:
+        print()
 
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
 
-    print(f"\n已写入 {settings_path}")
+    print(f"已写入 {settings_path}")
     print(json.dumps(settings["env"], indent=2, ensure_ascii=False))
 
 
@@ -415,6 +591,7 @@ def main():
     parser.add_argument("--reload", action="store_true", help="启用自动重载")
     parser.add_argument("--log-level", type=str, choices=["debug", "info", "warning", "error", "critical"],
                         default=None)
+    parser.add_argument("--log-user-agent", action="store_true", help="在日志中显示 User-Agent")
 
     args = parser.parse_args()
 
@@ -442,6 +619,10 @@ def main():
     host = args.host if args.host is not None else config.server.host
     port = args.port if args.port is not None else config.server.port
     log_level = args.log_level if args.log_level is not None else config.logging.level.lower()
+
+    # 配置应用（添加中间件等），必须在 uvicorn.run 之前调用
+    log_user_agent = args.log_user_agent or (config.logging.log_user_agent if config else False)
+    configure_app(log_user_agent=log_user_agent)
 
     uvicorn.run(
         "main:app",

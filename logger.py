@@ -6,6 +6,7 @@ structlog 日志配置模块
 - Console 格式输出（开发环境）
 - 上下文绑定
 - 请求日志记录
+- 调用位置信息（函数名、行号、线程号）
 """
 
 import logging
@@ -13,33 +14,41 @@ import sys
 from typing import Any, Dict, Optional
 
 import structlog
+from structlog.processors import CallsiteParameter, CallsiteParameterAdder
 
 
 def setup_logging(level: str = "INFO", json_format: bool = False):
     """
     配置 structlog 日志系统
-    
+
     Args:
         level: 日志级别 (DEBUG, INFO, WARNING, ERROR)
         json_format: 是否使用 JSON 格式输出（生产环境推荐）
-    
+
     Returns:
         配置好的 structlog logger 实例
-    
+
     Example:
         >>> logger = setup_logging("INFO", json_format=True)
         >>> logger.info("request_received", model="claude-3-opus", path="/v1/messages")
     """
     # 设置日志级别
     log_level = getattr(logging, level.upper(), logging.INFO)
-    
+
     # 配置标准库 logging
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=log_level,
     )
-    
+
+    # 调用位置参数：函数名、行号、线程名
+    callsite_params = [
+        CallsiteParameter.FUNC_NAME,
+        CallsiteParameter.LINENO,
+        CallsiteParameter.THREAD,
+    ]
+
     # 配置 structlog 处理器
     shared_processors = [
         structlog.contextvars.merge_contextvars,
@@ -49,6 +58,7 @@ def setup_logging(level: str = "INFO", json_format: bool = False):
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
+        CallsiteParameterAdder(parameters=callsite_params),  # 添加函数名、行号、线程名
     ]
     
     if json_format:
@@ -94,7 +104,7 @@ def log_request(
 ) -> None:
     """
     记录请求处理信息
-    
+
     Args:
         logger: structlog logger 实例
         model: 模型名称
@@ -102,7 +112,7 @@ def log_request(
         status_code: HTTP 状态码
         duration: 处理时长（秒）
         **kwargs: 额外的上下文信息
-    
+
     Example:
         >>> log_request(
         ...     logger,
@@ -113,6 +123,10 @@ def log_request(
         ...     request_id="abc-123"
         ... )
     """
+    # 200 不记录日志
+    if status_code == 200:
+        return
+
     # 根据状态码选择日志级别
     if status_code >= 500:
         log_method = logger.error
@@ -120,7 +134,7 @@ def log_request(
         log_method = logger.warning
     else:
         log_method = logger.info
-    
+
     log_method(
         "request_processed",
         model=model,

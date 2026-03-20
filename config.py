@@ -40,6 +40,7 @@ class ServerConfig:
     """服务器配置"""
     host: str = "0.0.0.0"
     port: int = 8000
+    cors_origins: List[str] = field(default_factory=lambda: ["*"])
 
 
 @dataclass
@@ -47,6 +48,7 @@ class LoggingConfig:
     """日志配置"""
     level: str = "INFO"
     format: str = "console"
+    log_user_agent: bool = False
 
 
 @dataclass
@@ -80,14 +82,20 @@ class Config:
         if not cls._validate_url(default_upstream):
             raise ConfigError(f"无效的 DEFAULT_UPSTREAM: {default_upstream}")
 
+        # 解析 CORS 来源配置（逗号分隔的域名列表）
+        cors_origins_str = os.environ.get("CORS_ORIGINS", "*")
+        cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
+
         server = ServerConfig(
             host=os.environ.get("SERVER_HOST", "0.0.0.0"),
-            port=int(os.environ.get("SERVER_PORT", "8000"))
+            port=int(os.environ.get("SERVER_PORT", "8000")),
+            cors_origins=cors_origins if cors_origins else ["*"]
         )
 
         logging_config = LoggingConfig(
             level=os.environ.get("LOG_LEVEL", "INFO"),
-            format=os.environ.get("LOG_FORMAT", "console")
+            format=os.environ.get("LOG_FORMAT", "console"),
+            log_user_agent=os.environ.get("LOG_USER_AGENT", "false").lower() == "true"
         )
 
         # 解析路由组
