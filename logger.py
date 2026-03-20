@@ -10,7 +10,6 @@ structlog 日志配置模块
 
 import logging
 import sys
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 import structlog
@@ -72,16 +71,13 @@ def setup_logging(level: str = "INFO", json_format: bool = False):
         cache_logger_on_first_use=True,
     )
     
-    return structlog.get_logger()
-
-
-def get_logger(name: str = __name__):
+def get_logger(name: str) -> structlog.BoundLogger:
     """
     获取 logger 实例
-    
+
     Args:
         name: logger 名称
-    
+
     Returns:
         structlog logger 实例
     """
