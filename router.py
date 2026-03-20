@@ -9,6 +9,7 @@ import fnmatch
 from typing import Optional, Tuple
 
 from config import Config, RouteRule
+from errors import RoutingError
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -59,12 +60,12 @@ class ModelRouter:
             )
             return route.upstream_url
         
-        logger.debug(
-            "route_not_matched_using_default",
+        # 未匹配到任何路由，抛出错误而不是使用默认上游
+        raise RoutingError(
+            f"模型 '{model}' 未匹配到任何路由配置，请检查 ROUTE_NAMES 和对应的 PATTERN 配置",
             model=model,
-            default_upstream=self.config.default_upstream
+            available_patterns=[r.pattern for r in self.config.routes]
         )
-        return self.config.default_upstream
     
     def get_api_key(self, model: str) -> Optional[str]:
         """
@@ -74,13 +75,21 @@ class ModelRouter:
             model: 模型名称
         
         Returns:
-            API 密钥，若无匹配则返回默认密钥
+            API 密钥，若无匹配则抛出 RoutingError
         
         Example:
             >>> router.get_api_key("claude-3-opus-20240229")
             "sk-ant-xxx"
         """
         route = self._match_route(model)
+        
+        if not route:
+            raise RoutingError(
+                f"模型 '{model}' 未匹配到任何路由配置，请检查 ROUTE_NAMES 和对应的 PATTERN 配置",
+                model=model,
+                available_patterns=[r.pattern for r in self.config.routes]
+            )
+        
         api_key = self.config.get_api_key(route)
         
         if api_key:
@@ -114,11 +123,14 @@ class ModelRouter:
         """
         route = self._match_route(model)
         
-        if route:
-            upstream_url = route.upstream_url
-        else:
-            upstream_url = self.config.default_upstream
+        if not route:
+            raise RoutingError(
+                f"模型 '{model}' 未匹配到任何路由配置，请检查 ROUTE_NAMES 和对应的 PATTERN 配置",
+                model=model,
+                available_patterns=[r.pattern for r in self.config.routes]
+            )
         
+        upstream_url = route.upstream_url
         api_key = self.config.get_api_key(route)
         
         return upstream_url, api_key
