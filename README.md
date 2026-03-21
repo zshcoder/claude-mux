@@ -194,6 +194,7 @@ python main.py gen-token
 ```bash
 python main.py setup
 # 交互式配置 Claude Code 的 settings.json
+# 交互提示：直接回车保持现有设置，输入 default 使用默认值
 ```
 
 ## API 端点
