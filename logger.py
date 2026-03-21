@@ -38,7 +38,6 @@ _LOG_MESSAGES = {
     "request_received": ("收到请求", "Request received"),
     "routing_request": ("正在路由请求", "Routing request"),
     "forwarding_request": ("正在转发请求到上游", "Forwarding request to upstream"),
-    "waiting_for_upstream_response": ("等待上游响应中，请耐心等待", "Waiting for upstream response"),
     "still_waiting_for_upstream": ("仍在等待上游响应", "Still waiting for upstream response"),
     "upstream_connection_error": ("上游连接错误", "Upstream connection error"),
 
