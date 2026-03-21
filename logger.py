@@ -200,10 +200,6 @@ def log_request(
         ...     request_id="abc-123"
         ... )
     """
-    # 200 不记录日志
-    if status_code == 200:
-        return
-
     # 根据状态码选择日志级别
     if status_code >= 500:
         log_method = logger.error
