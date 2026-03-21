@@ -5,9 +5,11 @@ Claude 代理路由器 - 主应用
 支持 SSE 流式响应和 API 密钥管理。
 """
 
+import asyncio
 import json
 import sys
 import time
+import httpx
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
@@ -173,6 +175,57 @@ def configure_app(log_user_agent: bool = False) -> None:
     app.state._cors_configured = True
 
 
+async def _send_with_wait_warning(
+    client: httpx.AsyncClient,
+    req: httpx.Request,
+    warning_delay: float = 5.0,
+    repeat_interval: float = 5.0
+) -> httpx.Response:
+    """
+    发送请求，超过阈值未响应则输出等待日志，后续持续输出警告
+
+    Args:
+        client: httpx 异步客户端
+        req: 已构建的请求对象
+        warning_delay: 警告延迟（秒），超过此时间未响应则输出日志
+        repeat_interval: 后续警告间隔（秒），每隔此时间输出一次警告
+
+    Returns:
+        上游响应对象
+    """
+    task = asyncio.create_task(client.send(req, stream=True))
+
+    # 先等待一段时间
+    done, _ = await asyncio.wait({task}, timeout=warning_delay)
+
+    if task in done:
+        return task.result()
+
+    # 超过阈值，输出第一次警告
+    logger.warning(
+        "waiting_for_upstream_response",
+        wait_seconds=warning_delay,
+        note="上游响应较慢，请耐心等待"
+    )
+
+    elapsed = warning_delay
+
+    # 持续等待并输出警告
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=repeat_interval)
+        if task in done:
+            return task.result()
+
+        elapsed += repeat_interval
+        logger.warning(
+            "still_waiting_for_upstream",
+            total_elapsed=round(elapsed, 1),
+            note="仍在等待上游响应"
+        )
+
+    return task.result()
+
+
 @app.post("/{path:path}")
 async def proxy_request(path: str, request: Request) -> Response:
     """
@@ -270,7 +323,9 @@ async def proxy_request(path: str, request: Request) -> Response:
                 upstream_url=upstream_url,
                 target_url=target_url
             )
-            upstream_resp = await http_client.send(req, stream=True)
+            upstream_resp = await _send_with_wait_warning(
+                http_client, req, config.logging.upstream_wait_warning_delay, config.logging.upstream_wait_warning_repeat_interval
+            )
 
         except Exception as e:
             duration = time.time() - start_time

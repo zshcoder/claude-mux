@@ -66,6 +66,8 @@ class LoggingConfig:
     level: str = "INFO"
     format: str = "console"
     log_user_agent: bool = False
+    upstream_wait_warning_delay: float = 5.0
+    upstream_wait_warning_repeat_interval: float = 5.0
 
 
 @dataclass
@@ -106,7 +108,9 @@ class Config:
         logging_config = LoggingConfig(
             level=os.environ.get("LOG_LEVEL", "INFO"),
             format=os.environ.get("LOG_FORMAT", "console"),
-            log_user_agent=os.environ.get("LOG_USER_AGENT", "false").lower() == "true"
+            log_user_agent=os.environ.get("LOG_USER_AGENT", "false").lower() == "true",
+            upstream_wait_warning_delay=float(os.environ.get("UPSTREAM_WAIT_WARNING_DELAY", "5.0")),
+            upstream_wait_warning_repeat_interval=float(os.environ.get("UPSTREAM_WAIT_WARNING_REPEAT_INTERVAL", "5.0"))
         )
 
         # 解析路由组
