@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.6] - 2026-03-22
 
 ### Added
 
@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `production-guide.md` - 生产运维指南
   - `runbook.md` - 故障排查运行手册
   - `adr/` - 架构决策记录目录
+  - `python-build-hatchling-guide.md` - Python 构建指南
+
+- **Skills**：添加 PyPI 发布助手 skill
 
 ### Changed
 
@@ -21,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 所有异常现在返回统一的 JSON 错误格式
   - 错误类型包括：`validation_error`, `routing_error`, `upstream_error`, `proxy_error`, `internal_error`
   - 异常提供 `to_dict()` 和 `to_json()` 方法
+
+- **上游**：优化上游等待警告机制，支持持续输出
 
 ### Security
 
@@ -85,5 +90,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Minor | 向后兼容的功能新增 |
 | Patch | 向后兼容的问题修复 |
 
-[Unreleased]: https://github.com/example/claude-proxy-router/compare/v1.0.0...HEAD
+[1.0.6]: https://github.com/example/claude-proxy-router/compare/v1.0.5...v1.0.6
 [1.0.0]: https://github.com/example/claude-proxy-router/releases/tag/v1.0.0
