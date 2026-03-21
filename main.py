@@ -525,24 +525,41 @@ def setup_claude_settings():
     haiku_prefix = get_model_prefix("HAIKU") if "HAIKU" in names else ""
 
     print("\n--- Claude Code 配置 ---")
-    print("直接回车使用 [默认值]，输入 . 或 - 跳过（不修改）\n")
+    print("直接回车保持不变，输入 default 使用默认值\n")
 
     # 跳过标记
     SKIP_MARKER = object()
 
-    def prompt_value(label: str, default: str) -> str | object:
-        """提示用户输入值"""
-        user_input = input(f"  {label} [{default}]: ").strip()
-        if user_input in (".", "-"):
-            return SKIP_MARKER  # 跳过
-        return user_input if user_input else default
+    def prompt_value(label: str, env_default: str, current_value: str | None) -> str | object:
+        """提示用户输入值
 
-    base_url = prompt_value("ANTHROPIC_BASE_URL", f"http://localhost:{port}")
-    token = prompt_value("ANTHROPIC_AUTH_TOKEN", auth_token)
-    sonnet_model = prompt_value("ANTHROPIC_DEFAULT_SONNET_MODEL", sonnet_prefix)
-    opus_model = prompt_value("ANTHROPIC_DEFAULT_OPUS_MODEL", opus_prefix)
-    haiku_model = prompt_value("ANTHROPIC_DEFAULT_HAIKU_MODEL", haiku_prefix)
-    api_timeout = prompt_value("API_TIMEOUT_MS", "300000")
+        Args:
+            label: 配置项名称
+            env_default: .env 中的默认值
+            current_value: settings.json 中当前已配置的值（None 表示未配置）
+        """
+        display_default = current_value if current_value is not None else env_default
+        user_input = input(f"  {label} (直接回车保持不变，当前: {display_default}): ").strip()
+        if user_input.lower() == "default":
+            return env_default  # 显式输入 default，使用 .env 默认值
+        if not user_input:
+            return SKIP_MARKER  # 直接回车跳过
+        return user_input
+
+    # 获取 settings.json 中的当前值
+    current_base_url = settings.get("env", {}).get("ANTHROPIC_BASE_URL")
+    current_token = settings.get("env", {}).get("ANTHROPIC_AUTH_TOKEN")
+    current_sonnet = settings.get("env", {}).get("ANTHROPIC_DEFAULT_SONNET_MODEL")
+    current_opus = settings.get("env", {}).get("ANTHROPIC_DEFAULT_OPUS_MODEL")
+    current_haiku = settings.get("env", {}).get("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+    current_timeout = settings.get("env", {}).get("API_TIMEOUT_MS")
+
+    base_url = prompt_value("ANTHROPIC_BASE_URL", f"http://localhost:{port}", current_base_url)
+    token = prompt_value("ANTHROPIC_AUTH_TOKEN", auth_token, current_token)
+    sonnet_model = prompt_value("ANTHROPIC_DEFAULT_SONNET_MODEL", sonnet_prefix, current_sonnet)
+    opus_model = prompt_value("ANTHROPIC_DEFAULT_OPUS_MODEL", opus_prefix, current_opus)
+    haiku_model = prompt_value("ANTHROPIC_DEFAULT_HAIKU_MODEL", haiku_prefix, current_haiku)
+    api_timeout = prompt_value("API_TIMEOUT_MS", "300000", current_timeout)
 
     # 初始化 env 部分
     if "env" not in settings:
@@ -564,8 +581,9 @@ def setup_claude_settings():
             settings["env"][key] = value
         else:
             skipped.append(key)
-            if key in settings["env"]:
-                 print(f"  跳过 {key}（保留原值: {settings['env'][key]})")
+            current = settings["env"].get(key)
+            if current is not None:
+                print(f"  跳过 {key}（保留原值: {current}）")
 
     if skipped:
         print()
