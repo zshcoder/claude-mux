@@ -212,7 +212,7 @@ def log_request(
         "request_processed",
         model=model,
         upstream_url=upstream_url,
-        status_code=status_code,
+        **({} if status_code == 200 else {"status_code": status_code}),
         duration_seconds=round(duration, 3),
         **kwargs
     )
